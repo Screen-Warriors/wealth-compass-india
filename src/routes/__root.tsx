@@ -77,25 +77,27 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "Personal Finance for Gen Z & Millennials — ₹99 Ebook" },
+      { name: "description", content: "Digital PDF ebook for Indian Gen Z and Millennials to budget smarter, save more, and build wealth." },
+      { name: "author", content: "Money Playbook" },
+      { property: "og:title", content: "Personal Finance for Gen Z & Millennials — ₹99 Ebook" },
+      { property: "og:description", content: "Instant-access personal finance ebook for India with secure Razorpay checkout." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:site", content: "@moneyplaybook" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
       },
+      { rel: "preconnect", href: "https://checkout.razorpay.com" },
+      { rel: "preconnect", href: "https://connect.facebook.net" },
     ],
     scripts: [
       {
-        // Meta Pixel — replace YOUR_PIXEL_ID with your real ID
-        children: `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','YOUR_PIXEL_ID');fbq('track','PageView');`,
+        src: "https://checkout.razorpay.com/v1/checkout.js",
+        async: true,
       },
     ],
   }),

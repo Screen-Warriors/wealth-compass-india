@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -17,6 +18,13 @@ import {
   Zap,
 } from "lucide-react";
 import ebookHero from "@/assets/ebook-hero.png";
+import {
+  createEbookOrder,
+  getCheckoutConfig,
+  markEbookPaymentFailed,
+  trackEbookEvent,
+  verifyEbookPayment,
+} from "@/lib/ebook-payments.functions";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -69,49 +77,296 @@ export const Route = createFileRoute("/")({
 declare global {
   interface Window {
     fbq?: (...args: unknown[]) => void;
+    _fbq?: unknown;
+    Razorpay?: new (options: RazorpayOptions) => RazorpayCheckout;
   }
 }
+
+type RazorpayCheckout = {
+  open: () => void;
+  on: (event: "payment.failed", handler: (response: RazorpayFailedResponse) => void) => void;
+};
+
+type RazorpaySuccessResponse = {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+};
+
+type RazorpayFailedResponse = {
+  error?: {
+    description?: string;
+    metadata?: {
+      order_id?: string;
+      payment_id?: string;
+    };
+  };
+};
+
+type RazorpayOptions = {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  image?: string;
+  method?: { upi?: boolean; card?: boolean; netbanking?: boolean; wallet?: boolean };
+  notes?: Record<string, string>;
+  retry?: { enabled: boolean; max_count?: number };
+  theme?: { color: string };
+  modal?: { confirm_close?: boolean; ondismiss?: () => void };
+  handler: (response: RazorpaySuccessResponse) => void;
+};
+
+type CheckoutConfig = {
+  productName: string;
+  productDescription: string;
+  amountPaise: number;
+  price: number;
+  currency: "INR";
+  razorpayKeyId: string;
+  metaPixelId: string;
+};
+type CtaHandler = () => void | Promise<void>;
+type CtaButtonProps = {
+  onCta: CtaHandler;
+  loading?: boolean;
+};
+
 const track = (event: string, data?: Record<string, unknown>) => {
   if (typeof window !== "undefined" && typeof window.fbq === "function") {
     window.fbq("track", event, data);
   }
 };
 
+const initMetaPixel = (pixelId: string) => {
+  if (typeof window === "undefined" || !pixelId || typeof window.fbq === "function") return;
+
+  const fbq = function (...args: unknown[]) {
+    const api = fbq as unknown as {
+      callMethod?: (...methodArgs: unknown[]) => void;
+      queue: unknown[][];
+    };
+    if (api.callMethod) {
+      api.callMethod(...args);
+      return;
+    }
+    api.queue.push(args);
+  } as unknown as (...args: unknown[]) => void;
+
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string; push: (...args: unknown[]) => void }).push = fbq;
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string; push: (...args: unknown[]) => void }).queue = [];
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string; push: (...args: unknown[]) => void }).loaded = true;
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string; push: (...args: unknown[]) => void }).version = "2.0";
+  window.fbq = fbq;
+  window._fbq = fbq;
+
+  const script = document.createElement("script");
+  script.async = true;
+  script.src = "https://connect.facebook.net/en_US/fbevents.js";
+  document.head.appendChild(script);
+  window.fbq("init", pixelId);
+  window.fbq("track", "PageView");
+};
+
+const ensureRazorpayScript = () =>
+  new Promise<void>((resolve, reject) => {
+    if (typeof window === "undefined") return reject(new Error("Checkout is unavailable right now."));
+    if (window.Razorpay) return resolve();
+
+    const waitForCheckout = () => {
+      const startedAt = Date.now();
+      const timer = window.setInterval(() => {
+        if (window.Razorpay) {
+          window.clearInterval(timer);
+          resolve();
+          return;
+        }
+        if (Date.now() - startedAt > 5000) {
+          window.clearInterval(timer);
+          reject(new Error("Could not load secure checkout. Please retry."));
+        }
+      }, 50);
+    };
+
+    const existing = document.querySelector<HTMLScriptElement>('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Could not load secure checkout. Please retry.")), { once: true });
+      waitForCheckout();
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Could not load secure checkout. Please retry."));
+    document.body.appendChild(script);
+  });
+
 function LandingPage() {
   const [showSticky, setShowSticky] = useState(false);
+  const [checkoutConfig, setCheckoutConfig] = useState<CheckoutConfig | null>(null);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const hasBootstrapped = useRef(false);
+  const fetchCheckoutConfig = useServerFn(getCheckoutConfig);
+  const trackEvent = useServerFn(trackEbookEvent);
+  const createOrder = useServerFn(createEbookOrder);
+  const verifyPayment = useServerFn(verifyEbookPayment);
+  const markPaymentFailed = useServerFn(markEbookPaymentFailed);
 
   useEffect(() => {
-    track("ViewContent", { content_name: "Personal Finance Ebook", value: 99, currency: "INR" });
+    if (hasBootstrapped.current) return;
+    hasBootstrapped.current = true;
+    let mounted = true;
+
+    fetchCheckoutConfig()
+      .then((config) => {
+        if (!mounted) return;
+        setCheckoutConfig(config);
+        initMetaPixel(config.metaPixelId);
+        track("ViewContent", { content_name: config.productName, value: config.price, currency: config.currency });
+      })
+      .catch((error) => {
+        console.error("Could not load checkout config", error);
+      });
+
+    trackEvent({
+      data: {
+        eventName: "ViewContent",
+        amountPaise: 9900,
+        currency: "INR",
+        source: "landing",
+        referrer: document.referrer || undefined,
+        landingPath: `${window.location.pathname}${window.location.search}`,
+      },
+    }).catch((error) => console.error("Could not track landing visit", error));
+
+    const preloadCheckout = () => ensureRazorpayScript().catch(() => undefined);
     const onScroll = () => setShowSticky(window.scrollY > 480);
     window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    window.addEventListener("pointerdown", preloadCheckout, { once: true, passive: true });
+    return () => {
+      mounted = false;
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("pointerdown", preloadCheckout);
+    };
+  }, [fetchCheckoutConfig, trackEvent]);
 
-  const handleCheckout = (location: string) => {
+  const handleCheckout = async (location: string) => {
+    if (checkoutLoading) return;
+    setCheckoutLoading(true);
+    setCheckoutError(null);
+
+    const productName = checkoutConfig?.productName ?? "Personal Finance for Gen Z & Millennials";
+    const currency = checkoutConfig?.currency ?? "INR";
+
     track("InitiateCheckout", {
-      content_name: "Personal Finance Ebook",
+      content_name: productName,
       value: 99,
-      currency: "INR",
+      currency,
       source: location,
     });
-    // Hook your checkout URL here (Razorpay/Stripe/Cashfree page link)
-    window.location.href = "#checkout";
+
+    try {
+      await ensureRazorpayScript();
+      const order = await createOrder({
+        data: {
+          source: location,
+          referrer: document.referrer || undefined,
+          landingPath: `${window.location.pathname}${window.location.search}`,
+        },
+      });
+
+      if (!window.Razorpay) throw new Error("Secure checkout is unavailable. Please retry.");
+
+      const checkout = new window.Razorpay({
+        key: order.keyId,
+        amount: order.amountPaise,
+        currency: order.currency,
+        name: "Money Playbook",
+        description: order.productDescription,
+        order_id: order.razorpayOrderId,
+        method: { upi: true, card: true, netbanking: true, wallet: true },
+        retry: { enabled: true, max_count: 3 },
+        notes: {
+          product_name: order.productName,
+          receipt: order.receipt,
+          source: location,
+        },
+        theme: { color: "#d9a13b" },
+        modal: {
+          confirm_close: true,
+          ondismiss: () => setCheckoutLoading(false),
+        },
+        handler: async (response) => {
+          try {
+            const result = await verifyPayment({
+              data: {
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                source: location,
+              },
+            });
+
+            track("Purchase", {
+              content_name: order.productName,
+              value: 99,
+              currency: order.currency,
+              order_id: response.razorpay_order_id,
+            });
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            window.location.href = result.redirectPath;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Payment verification failed.";
+            setCheckoutError(message);
+            setCheckoutLoading(false);
+          }
+        },
+      });
+
+      checkout.on("payment.failed", (response) => {
+        const reason = response.error?.description || "Payment failed. Please retry with UPI, card, net banking, or wallet.";
+        setCheckoutError(reason);
+        setCheckoutLoading(false);
+        track("PaymentFailed", { content_name: order.productName, value: 99, currency: order.currency, source: location });
+        markPaymentFailed({
+          data: {
+            razorpayOrderId: response.error?.metadata?.order_id ?? order.razorpayOrderId,
+            razorpayPaymentId: response.error?.metadata?.payment_id,
+            reason,
+            source: location,
+          },
+        }).catch((error) => console.error("Could not record payment failure", error));
+      });
+
+      checkout.open();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not start checkout. Please try again.";
+      setCheckoutError(message);
+      setCheckoutLoading(false);
+    }
   };
 
   return (
     <main className="min-h-screen bg-background text-foreground">
       <AnnouncementBar />
-      <Hero onCta={() => handleCheckout("hero")} />
+      <CheckoutNotice error={checkoutError} loading={checkoutLoading} onRetry={() => handleCheckout("retry")} />
+      <Hero onCta={() => handleCheckout("hero")} loading={checkoutLoading} />
       <SocialProof />
       <PainPoints />
       <WhatYoullLearn />
       <WhatsIncluded />
       <WhyDifferent />
-      <Offer onCta={() => handleCheckout("offer")} />
+      <Offer onCta={() => handleCheckout("offer")} loading={checkoutLoading} error={checkoutError} />
       <FAQ />
-      <FinalCta onCta={() => handleCheckout("final")} />
+      <FinalCta onCta={() => handleCheckout("final")} loading={checkoutLoading} />
       <Footer />
-      <StickyCta show={showSticky} onCta={() => handleCheckout("sticky")} />
+      <StickyCta show={showSticky} onCta={() => handleCheckout("sticky")} loading={checkoutLoading} />
     </main>
   );
 }
@@ -131,7 +386,26 @@ function AnnouncementBar() {
   );
 }
 
-function Hero({ onCta }: { onCta: () => void }) {
+function CheckoutNotice({ error, loading, onRetry }: { error: string | null; loading: boolean; onRetry: CtaHandler }) {
+  if (!error) return null;
+
+  return (
+    <div className="sticky top-0 z-40 border-b border-destructive/20 bg-destructive/10 px-4 py-3 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl flex-col gap-2 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+        <span>{error}</span>
+        <button
+          onClick={onRetry}
+          disabled={loading}
+          className="inline-flex h-9 items-center justify-center rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground"
+        >
+          {loading ? "Retrying..." : "Retry payment"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Hero({ onCta, loading = false }: CtaButtonProps) {
   return (
     <section
       className="relative overflow-hidden text-primary-foreground"
@@ -173,11 +447,16 @@ function Hero({ onCta }: { onCta: () => void }) {
           <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
             <button
               onClick={onCta}
+              disabled={loading}
               className="btn-gold group relative inline-flex h-14 items-center justify-center gap-2 rounded-2xl px-6 text-base font-semibold sm:text-[15px]"
             >
               <span className="absolute inset-0 -z-10 rounded-2xl animate-pulse-ring" />
-              Get Instant Access for ₹99
-              <ArrowRight className="size-5 transition-transform group-hover:translate-x-0.5" />
+              {loading ? "Opening secure checkout..." : "Get Instant Access for ₹99"}
+              {loading ? (
+                <span className="size-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+              ) : (
+                <ArrowRight className="size-5 transition-transform group-hover:translate-x-0.5" />
+              )}
             </button>
             <div className="flex items-center gap-2 text-sm text-white/70">
               <Download className="size-4 text-gold" />
@@ -236,7 +515,7 @@ function FloatingStat({
   value,
 }: {
   className?: string;
-  icon: React.ReactNode;
+  icon: ReactNode;
   label: string;
   value: string;
 }) {
@@ -281,7 +560,7 @@ function Section({
   eyebrow?: string;
   title: string;
   subtitle?: string;
-  children: React.ReactNode;
+  children: ReactNode;
   className?: string;
 }) {
   return (
@@ -431,7 +710,7 @@ function WhyDifferent() {
   );
 }
 
-function Offer({ onCta }: { onCta: () => void }) {
+function Offer({ onCta, loading = false, error }: CtaButtonProps & { error?: string | null }) {
   return (
     <section className="px-5 py-16 sm:py-20 md:px-8">
       <div className="mx-auto max-w-3xl">
@@ -462,11 +741,22 @@ function Offer({ onCta }: { onCta: () => void }) {
 
             <button
               onClick={onCta}
+              disabled={loading}
               className="btn-gold mt-7 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl px-6 text-base font-semibold sm:w-auto"
             >
-              <Download className="size-5" />
-              Download Now for ₹99
+              {loading ? (
+                <span className="size-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+              ) : (
+                <Download className="size-5" />
+              )}
+              {loading ? "Opening secure checkout..." : "Download Now for ₹99"}
             </button>
+
+            {error && (
+              <div className="mx-auto mt-4 max-w-md rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-white">
+                {error} <button onClick={onCta} className="font-semibold text-gold underline">Retry payment</button>
+              </div>
+            )}
 
             <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-white/65">
               <span className="inline-flex items-center gap-1.5">
@@ -545,7 +835,7 @@ function FaqItem({ q, a, defaultOpen }: { q: string; a: string; defaultOpen?: bo
   );
 }
 
-function FinalCta({ onCta }: { onCta: () => void }) {
+function FinalCta({ onCta, loading = false }: CtaButtonProps) {
   return (
     <section
       className="relative overflow-hidden px-5 py-20 text-primary-foreground sm:py-28 md:px-8"
@@ -566,10 +856,15 @@ function FinalCta({ onCta }: { onCta: () => void }) {
         </p>
         <button
           onClick={onCta}
+          disabled={loading}
           className="btn-gold mt-8 inline-flex h-14 items-center justify-center gap-2 rounded-2xl px-7 text-base font-semibold"
         >
-          Get My Copy Now
-          <ArrowRight className="size-5" />
+          {loading ? "Opening checkout..." : "Get My Copy Now"}
+          {loading ? (
+            <span className="size-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          ) : (
+            <ArrowRight className="size-5" />
+          )}
         </button>
         <div className="mt-5 text-xs text-white/55">Instant PDF · ₹99 · Lifetime access</div>
       </div>
@@ -592,7 +887,7 @@ function Footer() {
   );
 }
 
-function StickyCta({ show, onCta }: { show: boolean; onCta: () => void }) {
+function StickyCta({ show, onCta, loading = false }: { show: boolean } & CtaButtonProps) {
   return (
     <div
       className={`fixed inset-x-0 bottom-0 z-50 transition-transform duration-300 md:hidden ${show ? "translate-y-0" : "translate-y-full"}`}
@@ -607,10 +902,15 @@ function StickyCta({ show, onCta }: { show: boolean; onCta: () => void }) {
         </div>
         <button
           onClick={onCta}
+          disabled={loading}
           className="btn-gold inline-flex h-12 items-center gap-1.5 rounded-xl px-4 text-sm font-semibold"
         >
-          Download
-          <ArrowRight className="size-4" />
+          {loading ? "Opening" : "Download"}
+          {loading ? (
+            <span className="size-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          ) : (
+            <ArrowRight className="size-4" />
+          )}
         </button>
       </div>
     </div>
