@@ -331,10 +331,20 @@ export const verifyEbookPayment = createServerFn({ method: "POST" })
       };
     }
 
-    const payment = await razorpayRequest<RazorpayPaymentResponse>(
+    let payment = await razorpayRequest<RazorpayPaymentResponse>(
       `/payments/${encodeURIComponent(data.razorpay_payment_id)}`,
       { method: "GET" },
     );
+
+    if (payment.status === "authorized") {
+      payment = await razorpayRequest<RazorpayPaymentResponse>(
+        `/payments/${encodeURIComponent(data.razorpay_payment_id)}/capture`,
+        {
+          method: "POST",
+          body: JSON.stringify({ amount: PRODUCT_AMOUNT_PAISE, currency: PRODUCT_CURRENCY }),
+        },
+      );
+    }
 
     const paymentIsValid =
       payment.order_id === data.razorpay_order_id &&
