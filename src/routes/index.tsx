@@ -119,7 +119,15 @@ type RazorpayOptions = {
   handler: (response: RazorpaySuccessResponse) => void;
 };
 
-type CheckoutConfig = Awaited<ReturnType<typeof getCheckoutConfig>>;
+type CheckoutConfig = {
+  productName: string;
+  productDescription: string;
+  amountPaise: number;
+  price: number;
+  currency: "INR";
+  razorpayKeyId: string;
+  metaPixelId: string;
+};
 type CtaHandler = () => void | Promise<void>;
 type CtaButtonProps = {
   onCta: CtaHandler;
