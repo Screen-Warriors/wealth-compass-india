@@ -136,13 +136,13 @@ const initMetaPixel = (pixelId: string) => {
   if (typeof window === "undefined" || !pixelId || typeof window.fbq === "function") return;
 
   const fbq = function (...args: unknown[]) {
-    const queue = (fbq as unknown as { queue: unknown[] }).queue;
+    const queue = (fbq as unknown as { queue: unknown[][] }).queue;
     queue.push(args);
   } as unknown as (...args: unknown[]) => void;
 
-  (fbq as unknown as { queue: unknown[]; loaded: boolean; version: string }).queue = [];
-  (fbq as unknown as { queue: unknown[]; loaded: boolean; version: string }).loaded = true;
-  (fbq as unknown as { queue: unknown[]; loaded: boolean; version: string }).version = "2.0";
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string }).queue = [];
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string }).loaded = true;
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string }).version = "2.0";
   window.fbq = fbq;
   window._fbq = fbq;
 
