@@ -1,8 +1,6 @@
-import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "crypto";
-import { Buffer } from "buffer";
 import { createServerFn } from "@tanstack/react-start";
-import { getRequestHeader } from "@tanstack/react-start/server";
 import { z } from "zod";
+import type { Json } from "@/integrations/supabase/types";
 
 const PRODUCT_NAME = "Personal Finance for Gen Z & Millennials";
 const PRODUCT_DESCRIPTION = "Digital PDF Ebook";
@@ -77,17 +75,66 @@ function requireEnv(name: string) {
   return value;
 }
 
-function razorpayAuthHeader() {
+function randomHex(byteLength: number) {
+  const values = new Uint8Array(byteLength);
+  globalThis.crypto.getRandomValues(values);
+  return Array.from(values, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function hexToBytes(hex: string) {
+  const cleanHex = hex.toLowerCase();
+  const bytes = new Uint8Array(cleanHex.length / 2);
+  for (let index = 0; index < bytes.length; index += 1) {
+    bytes[index] = Number.parseInt(cleanHex.slice(index * 2, index * 2 + 2), 16);
+  }
+  return bytes;
+}
+
+function safeEqualHex(left: string, right: string) {
+  if (!/^[a-f0-9]+$/i.test(left) || !/^[a-f0-9]+$/i.test(right) || left.length !== right.length) {
+    return false;
+  }
+
+  const leftBytes = hexToBytes(left);
+  const rightBytes = hexToBytes(right);
+  let difference = 0;
+  for (let index = 0; index < leftBytes.length; index += 1) {
+    difference |= leftBytes[index] ^ rightBytes[index];
+  }
+  return difference === 0;
+}
+
+function bufferToHex(buffer: ArrayBuffer) {
+  return Array.from(new Uint8Array(buffer), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function createSignature(payload: string, secret: string) {
+  const key = await globalThis.crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await globalThis.crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
+  return bufferToHex(signature);
+}
+
+function toJson(value: Record<string, unknown> | undefined): Json {
+  return JSON.parse(JSON.stringify(value ?? {})) as Json;
+}
+
+async function razorpayAuthHeader() {
   const keyId = requireEnv("RAZORPAY_KEY_ID");
   const secretKey = requireEnv("RAZORPAY_SECRET_KEY");
-  return `Basic ${Buffer.from(`${keyId}:${secretKey}`).toString("base64")}`;
+  return `Basic ${btoa(`${keyId}:${secretKey}`)}`;
 }
 
 async function razorpayRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`https://api.razorpay.com/v1${path}`, {
     ...init,
     headers: {
-      Authorization: razorpayAuthHeader(),
+      Authorization: await razorpayAuthHeader(),
       ...jsonHeaders,
       ...(init?.headers ?? {}),
     },
@@ -105,6 +152,7 @@ async function razorpayRequest<T>(path: string, init?: RequestInit): Promise<T> 
 }
 
 async function insertEvent(data: z.infer<typeof eventSchema>) {
+  const { getRequestHeader } = await import("@tanstack/react-start/server");
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { error } = await supabaseAdmin.from("ebook_events").insert({
     event_name: data.eventName,
@@ -116,7 +164,7 @@ async function insertEvent(data: z.infer<typeof eventSchema>) {
     user_agent: getRequestHeader("user-agent") ?? null,
     referrer: data.referrer ?? null,
     landing_path: data.landingPath ?? null,
-    metadata: data.metadata ?? {},
+    metadata: toJson(data.metadata),
   });
 
   if (error) console.error("Failed to store ebook analytics event", error);
@@ -146,7 +194,7 @@ export const createEbookOrder = createServerFn({ method: "POST" })
     requireEnv("RAZORPAY_SECRET_KEY");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const receipt = `ebook_${Date.now()}_${randomUUID().slice(0, 8)}`;
+    const receipt = `ebook_${Date.now()}_${globalThis.crypto.randomUUID().slice(0, 8)}`;
 
     const { error: insertError } = await supabaseAdmin.from("ebook_orders").insert({
       receipt,
@@ -223,13 +271,12 @@ export const verifyEbookPayment = createServerFn({ method: "POST" })
   .inputValidator((data) => verifyPaymentSchema.parse(data))
   .handler(async ({ data }) => {
     const secretKey = requireEnv("RAZORPAY_SECRET_KEY");
-    const expectedSignature = createHmac("sha256", secretKey)
-      .update(`${data.razorpay_order_id}|${data.razorpay_payment_id}`)
-      .digest("hex");
+    const expectedSignature = await createSignature(
+      `${data.razorpay_order_id}|${data.razorpay_payment_id}`,
+      secretKey,
+    );
 
-    const actual = Buffer.from(data.razorpay_signature, "hex");
-    const expected = Buffer.from(expectedSignature, "hex");
-    const isValid = actual.length === expected.length && timingSafeEqual(actual, expected);
+    const isValid = safeEqualHex(data.razorpay_signature, expectedSignature);
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
@@ -265,7 +312,7 @@ export const verifyEbookPayment = createServerFn({ method: "POST" })
       return null;
     });
 
-    const downloadToken = randomBytes(32).toString("hex");
+    const downloadToken = randomHex(32);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
 
     const { data: updatedOrder, error: updateError } = await supabaseAdmin
