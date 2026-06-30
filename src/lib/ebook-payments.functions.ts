@@ -308,6 +308,29 @@ export const verifyEbookPayment = createServerFn({ method: "POST" })
       throw new Error("Payment verification failed. Please contact support if money was debited.");
     }
 
+    const { data: existingOrder, error: orderLookupError } = await supabaseAdmin
+      .from("ebook_orders")
+      .select("status, download_token, amount_paise")
+      .eq("razorpay_order_id", data.razorpay_order_id)
+      .maybeSingle();
+
+    if (orderLookupError) {
+      console.error("Failed to lookup ebook order before verification", orderLookupError);
+      throw new Error("Payment could not be matched to an order. Please contact support.");
+    }
+
+    if (!existingOrder || existingOrder.amount_paise !== PRODUCT_AMOUNT_PAISE) {
+      throw new Error("Payment could not be matched to a valid ebook order. Please contact support.");
+    }
+
+    if (existingOrder.status === "paid" && existingOrder.download_token) {
+      return {
+        success: true,
+        downloadToken: existingOrder.download_token,
+        redirectPath: `/thank-you?token=${encodeURIComponent(existingOrder.download_token)}`,
+      };
+    }
+
     const payment = await razorpayRequest<RazorpayPaymentResponse>(
       `/payments/${encodeURIComponent(data.razorpay_payment_id)}`,
       { method: "GET" },
