@@ -317,7 +317,7 @@ export const verifyEbookPayment = createServerFn({ method: "POST" })
       payment.order_id === data.razorpay_order_id &&
       payment.amount === PRODUCT_AMOUNT_PAISE &&
       payment.currency === PRODUCT_CURRENCY &&
-      ["captured", "authorized"].includes(payment.status ?? "");
+      payment.status === "captured";
 
     if (!paymentIsValid) {
       await supabaseAdmin
