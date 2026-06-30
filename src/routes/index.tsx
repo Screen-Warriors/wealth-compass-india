@@ -111,7 +111,9 @@ type RazorpayOptions = {
   description: string;
   order_id: string;
   image?: string;
+  method?: { upi?: boolean; card?: boolean; netbanking?: boolean; wallet?: boolean };
   notes?: Record<string, string>;
+  retry?: { enabled: boolean; max_count?: number };
   theme?: { color: string };
   modal?: { confirm_close?: boolean; ondismiss?: () => void };
   handler: (response: RazorpaySuccessResponse) => void;
@@ -253,6 +255,8 @@ function LandingPage() {
         name: "Money Playbook",
         description: order.productDescription,
         order_id: order.razorpayOrderId,
+        method: { upi: true, card: true, netbanking: true, wallet: true },
+        retry: { enabled: true, max_count: 3 },
         notes: {
           product_name: order.productName,
           receipt: order.receipt,
@@ -280,6 +284,7 @@ function LandingPage() {
               currency: order.currency,
               order_id: response.razorpay_order_id,
             });
+            await new Promise((resolve) => setTimeout(resolve, 250));
             window.location.href = result.redirectPath;
           } catch (error) {
             const message = error instanceof Error ? error.message : "Payment verification failed.";
