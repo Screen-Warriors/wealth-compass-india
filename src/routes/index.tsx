@@ -115,7 +115,7 @@ type RazorpayOptions = {
   notes?: Record<string, string>;
   retry?: { enabled: boolean; max_count?: number };
   theme?: { color: string };
-  modal?: { confirm_close?: boolean; ondismiss?: () => void };
+  modal?: { confirm_close?: boolean; ondismiss?: () => void; escape?: boolean; backdropclose?: boolean };
   handler: (response: RazorpaySuccessResponse) => void;
 };
 
