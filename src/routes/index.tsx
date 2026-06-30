@@ -320,6 +320,7 @@ function LandingPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <AnnouncementBar />
+      <CheckoutNotice error={checkoutError} loading={checkoutLoading} onRetry={() => handleCheckout("retry")} />
       <Hero onCta={() => handleCheckout("hero")} loading={checkoutLoading} />
       <SocialProof />
       <PainPoints />
@@ -345,6 +346,25 @@ function AnnouncementBar() {
         <span className="font-medium tracking-wide">
           Launch offer — <span className="text-gold">67% OFF</span> · Today only ₹99
         </span>
+      </div>
+    </div>
+  );
+}
+
+function CheckoutNotice({ error, loading, onRetry }: { error: string | null; loading: boolean; onRetry: CtaHandler }) {
+  if (!error) return null;
+
+  return (
+    <div className="sticky top-0 z-40 border-b border-destructive/20 bg-destructive/10 px-4 py-3 backdrop-blur">
+      <div className="mx-auto flex max-w-5xl flex-col gap-2 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+        <span>{error}</span>
+        <button
+          onClick={onRetry}
+          disabled={loading}
+          className="inline-flex h-9 items-center justify-center rounded-full bg-primary px-4 text-xs font-semibold text-primary-foreground"
+        >
+          {loading ? "Retrying..." : "Retry payment"}
+        </button>
       </div>
     </div>
   );
