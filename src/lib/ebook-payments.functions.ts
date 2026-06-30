@@ -60,10 +60,14 @@ type RazorpayOrderResponse = {
 
 type RazorpayPaymentResponse = {
   id: string;
+  order_id?: string | null;
+  amount?: number | null;
+  currency?: string | null;
   method?: string;
   email?: string | null;
   contact?: string | null;
   status?: string;
+  captured?: boolean;
   error_description?: string | null;
 };
 
@@ -307,10 +311,40 @@ export const verifyEbookPayment = createServerFn({ method: "POST" })
     const payment = await razorpayRequest<RazorpayPaymentResponse>(
       `/payments/${encodeURIComponent(data.razorpay_payment_id)}`,
       { method: "GET" },
-    ).catch((error) => {
-      console.error("Could not fetch Razorpay payment details", error);
-      return null;
-    });
+    );
+
+    const paymentIsValid =
+      payment.order_id === data.razorpay_order_id &&
+      payment.amount === PRODUCT_AMOUNT_PAISE &&
+      payment.currency === PRODUCT_CURRENCY &&
+      ["captured", "authorized"].includes(payment.status ?? "");
+
+    if (!paymentIsValid) {
+      await supabaseAdmin
+        .from("ebook_orders")
+        .update({
+          status: "failed",
+          razorpay_payment_id: data.razorpay_payment_id,
+          razorpay_signature: data.razorpay_signature,
+          failure_reason: "Razorpay payment details did not match the order.",
+        })
+        .eq("razorpay_order_id", data.razorpay_order_id);
+
+      await insertEvent({
+        eventName: "PaymentFailed",
+        source: data.source,
+        amountPaise: PRODUCT_AMOUNT_PAISE,
+        currency: PRODUCT_CURRENCY,
+        razorpayOrderId: data.razorpay_order_id,
+        razorpayPaymentId: data.razorpay_payment_id,
+        metadata: {
+          reason: "payment_detail_mismatch",
+          payment_status: payment.status ?? null,
+        },
+      });
+
+      throw new Error("Payment could not be confirmed securely. Please contact support if money was debited.");
+    }
 
     const downloadToken = randomHex(32);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString();
@@ -321,8 +355,8 @@ export const verifyEbookPayment = createServerFn({ method: "POST" })
         status: "paid",
         razorpay_payment_id: data.razorpay_payment_id,
         razorpay_signature: data.razorpay_signature,
-        customer_email: payment?.email ?? undefined,
-        customer_phone: payment?.contact ?? undefined,
+        customer_email: payment.email ?? undefined,
+        customer_phone: payment.contact ?? undefined,
         download_token: downloadToken,
         download_token_expires_at: expiresAt,
         paid_at: new Date().toISOString(),
@@ -346,8 +380,8 @@ export const verifyEbookPayment = createServerFn({ method: "POST" })
       razorpayOrderId: data.razorpay_order_id,
       razorpayPaymentId: data.razorpay_payment_id,
       metadata: {
-        payment_method: payment?.method ?? null,
-        payment_status: payment?.status ?? null,
+        payment_method: payment.method ?? null,
+        payment_status: payment.status ?? null,
       },
     });
 
