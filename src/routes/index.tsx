@@ -301,6 +301,8 @@ function LandingPage() {
         modal: {
           confirm_close: true,
           ondismiss: () => setCheckoutLoading(false),
+          escape: true,
+          backdropclose: false,
         },
         handler: async (response) => {
           try {
@@ -345,12 +347,17 @@ function LandingPage() {
       });
 
       checkout.open();
+      // Razorpay now owns the UI. Release the button so the user can retry
+      // if the modal is blocked (sandboxed iframe, popup blocker, etc.)
+      // or simply if they want to click again.
+      window.setTimeout(() => setCheckoutLoading(false), 800);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not start checkout. Please try again.";
       setCheckoutError(message);
       setCheckoutLoading(false);
     }
   };
+
 
   return (
     <main className="min-h-screen bg-background text-foreground">
