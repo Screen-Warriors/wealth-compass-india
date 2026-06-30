@@ -159,10 +159,26 @@ const ensureRazorpayScript = () =>
     if (typeof window === "undefined") return reject(new Error("Checkout is unavailable right now."));
     if (window.Razorpay) return resolve();
 
+    const waitForCheckout = () => {
+      const startedAt = Date.now();
+      const timer = window.setInterval(() => {
+        if (window.Razorpay) {
+          window.clearInterval(timer);
+          resolve();
+          return;
+        }
+        if (Date.now() - startedAt > 5000) {
+          window.clearInterval(timer);
+          reject(new Error("Could not load secure checkout. Please retry."));
+        }
+      }, 50);
+    };
+
     const existing = document.querySelector<HTMLScriptElement>('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
     if (existing) {
       existing.addEventListener("load", () => resolve(), { once: true });
       existing.addEventListener("error", () => reject(new Error("Could not load secure checkout. Please retry.")), { once: true });
+      waitForCheckout();
       return;
     }
 
