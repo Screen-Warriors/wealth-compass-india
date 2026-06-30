@@ -118,6 +118,11 @@ type RazorpayOptions = {
 };
 
 type CheckoutConfig = Awaited<ReturnType<typeof getCheckoutConfig>>;
+type CtaHandler = () => void | Promise<void>;
+type CtaButtonProps = {
+  onCta: CtaHandler;
+  loading?: boolean;
+};
 
 const track = (event: string, data?: Record<string, unknown>) => {
   if (typeof window !== "undefined" && typeof window.fbq === "function") {
@@ -340,7 +345,7 @@ function AnnouncementBar() {
   );
 }
 
-function Hero({ onCta }: { onCta: () => void }) {
+function Hero({ onCta, loading = false }: CtaButtonProps) {
   return (
     <section
       className="relative overflow-hidden text-primary-foreground"
@@ -382,11 +387,16 @@ function Hero({ onCta }: { onCta: () => void }) {
           <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:items-center">
             <button
               onClick={onCta}
+              disabled={loading}
               className="btn-gold group relative inline-flex h-14 items-center justify-center gap-2 rounded-2xl px-6 text-base font-semibold sm:text-[15px]"
             >
               <span className="absolute inset-0 -z-10 rounded-2xl animate-pulse-ring" />
-              Get Instant Access for ₹99
-              <ArrowRight className="size-5 transition-transform group-hover:translate-x-0.5" />
+              {loading ? "Opening secure checkout..." : "Get Instant Access for ₹99"}
+              {loading ? (
+                <span className="size-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+              ) : (
+                <ArrowRight className="size-5 transition-transform group-hover:translate-x-0.5" />
+              )}
             </button>
             <div className="flex items-center gap-2 text-sm text-white/70">
               <Download className="size-4 text-gold" />
@@ -640,7 +650,7 @@ function WhyDifferent() {
   );
 }
 
-function Offer({ onCta }: { onCta: () => void }) {
+function Offer({ onCta, loading = false, error }: CtaButtonProps & { error?: string | null }) {
   return (
     <section className="px-5 py-16 sm:py-20 md:px-8">
       <div className="mx-auto max-w-3xl">
@@ -671,11 +681,22 @@ function Offer({ onCta }: { onCta: () => void }) {
 
             <button
               onClick={onCta}
+              disabled={loading}
               className="btn-gold mt-7 inline-flex h-14 w-full items-center justify-center gap-2 rounded-2xl px-6 text-base font-semibold sm:w-auto"
             >
-              <Download className="size-5" />
-              Download Now for ₹99
+              {loading ? (
+                <span className="size-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+              ) : (
+                <Download className="size-5" />
+              )}
+              {loading ? "Opening secure checkout..." : "Download Now for ₹99"}
             </button>
+
+            {error && (
+              <div className="mx-auto mt-4 max-w-md rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-white">
+                {error} <button onClick={onCta} className="font-semibold text-gold underline">Retry payment</button>
+              </div>
+            )}
 
             <div className="mt-6 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-white/65">
               <span className="inline-flex items-center gap-1.5">
@@ -754,7 +775,7 @@ function FaqItem({ q, a, defaultOpen }: { q: string; a: string; defaultOpen?: bo
   );
 }
 
-function FinalCta({ onCta }: { onCta: () => void }) {
+function FinalCta({ onCta, loading = false }: CtaButtonProps) {
   return (
     <section
       className="relative overflow-hidden px-5 py-20 text-primary-foreground sm:py-28 md:px-8"
@@ -775,10 +796,15 @@ function FinalCta({ onCta }: { onCta: () => void }) {
         </p>
         <button
           onClick={onCta}
+          disabled={loading}
           className="btn-gold mt-8 inline-flex h-14 items-center justify-center gap-2 rounded-2xl px-7 text-base font-semibold"
         >
-          Get My Copy Now
-          <ArrowRight className="size-5" />
+          {loading ? "Opening checkout..." : "Get My Copy Now"}
+          {loading ? (
+            <span className="size-5 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          ) : (
+            <ArrowRight className="size-5" />
+          )}
         </button>
         <div className="mt-5 text-xs text-white/55">Instant PDF · ₹99 · Lifetime access</div>
       </div>
@@ -801,7 +827,7 @@ function Footer() {
   );
 }
 
-function StickyCta({ show, onCta }: { show: boolean; onCta: () => void }) {
+function StickyCta({ show, onCta, loading = false }: { show: boolean } & CtaButtonProps) {
   return (
     <div
       className={`fixed inset-x-0 bottom-0 z-50 transition-transform duration-300 md:hidden ${show ? "translate-y-0" : "translate-y-full"}`}
@@ -816,10 +842,15 @@ function StickyCta({ show, onCta }: { show: boolean; onCta: () => void }) {
         </div>
         <button
           onClick={onCta}
+          disabled={loading}
           className="btn-gold inline-flex h-12 items-center gap-1.5 rounded-xl px-4 text-sm font-semibold"
         >
-          Download
-          <ArrowRight className="size-4" />
+          {loading ? "Opening" : "Download"}
+          {loading ? (
+            <span className="size-4 animate-spin rounded-full border-2 border-primary/30 border-t-primary" />
+          ) : (
+            <ArrowRight className="size-4" />
+          )}
         </button>
       </div>
     </div>
