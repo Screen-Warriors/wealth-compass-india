@@ -14,7 +14,117 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      ebook_events: {
+        Row: {
+          amount_paise: number | null
+          created_at: string
+          currency: string | null
+          event_name: string
+          id: string
+          landing_path: string | null
+          metadata: Json
+          razorpay_order_id: string | null
+          razorpay_payment_id: string | null
+          referrer: string | null
+          source: string | null
+          user_agent: string | null
+        }
+        Insert: {
+          amount_paise?: number | null
+          created_at?: string
+          currency?: string | null
+          event_name: string
+          id?: string
+          landing_path?: string | null
+          metadata?: Json
+          razorpay_order_id?: string | null
+          razorpay_payment_id?: string | null
+          referrer?: string | null
+          source?: string | null
+          user_agent?: string | null
+        }
+        Update: {
+          amount_paise?: number | null
+          created_at?: string
+          currency?: string | null
+          event_name?: string
+          id?: string
+          landing_path?: string | null
+          metadata?: Json
+          razorpay_order_id?: string | null
+          razorpay_payment_id?: string | null
+          referrer?: string | null
+          source?: string | null
+          user_agent?: string | null
+        }
+        Relationships: []
+      }
+      ebook_orders: {
+        Row: {
+          amount_paise: number
+          checkout_source: string | null
+          created_at: string
+          currency: string
+          customer_email: string | null
+          customer_name: string | null
+          customer_phone: string | null
+          download_token: string | null
+          download_token_expires_at: string | null
+          failure_reason: string | null
+          id: string
+          paid_at: string | null
+          product_name: string
+          razorpay_order_id: string | null
+          razorpay_payment_id: string | null
+          razorpay_signature: string | null
+          receipt: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          amount_paise?: number
+          checkout_source?: string | null
+          created_at?: string
+          currency?: string
+          customer_email?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          download_token?: string | null
+          download_token_expires_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          paid_at?: string | null
+          product_name?: string
+          razorpay_order_id?: string | null
+          razorpay_payment_id?: string | null
+          razorpay_signature?: string | null
+          receipt: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          amount_paise?: number
+          checkout_source?: string | null
+          created_at?: string
+          currency?: string
+          customer_email?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          download_token?: string | null
+          download_token_expires_at?: string | null
+          failure_reason?: string | null
+          id?: string
+          paid_at?: string | null
+          product_name?: string
+          razorpay_order_id?: string | null
+          razorpay_payment_id?: string | null
+          razorpay_signature?: string | null
+          receipt?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
