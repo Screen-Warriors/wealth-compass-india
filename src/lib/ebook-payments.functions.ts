@@ -421,6 +421,33 @@ export const markEbookPaymentFailed = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+export const getEbookAnalytics = createServerFn({ method: "GET" }).handler(async () => {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: events, error } = await supabaseAdmin
+    .from("ebook_events")
+    .select("event_name, amount_paise");
+
+  if (error) {
+    console.error("Failed to load ebook analytics", error);
+    throw new Error("Could not load ebook analytics.");
+  }
+
+  const visits = events.filter((event) => event.event_name === "ViewContent").length;
+  const checkoutStarts = events.filter((event) => event.event_name === "InitiateCheckout").length;
+  const purchases = events.filter((event) => event.event_name === "Purchase");
+  const revenuePaise = purchases.reduce((total, event) => total + (event.amount_paise ?? 0), 0);
+
+  return {
+    visits,
+    checkoutStarts,
+    successfulPurchases: purchases.length,
+    conversionRate: visits > 0 ? purchases.length / visits : 0,
+    revenuePaise,
+    revenue: revenuePaise / 100,
+    currency: PRODUCT_CURRENCY,
+  };
+});
+
 export const getDownloadStatus = createServerFn({ method: "POST" })
   .inputValidator((data) => downloadStatusSchema.parse(data))
   .handler(async ({ data }) => {
