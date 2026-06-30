@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   BadgeCheck,
@@ -144,13 +144,21 @@ const initMetaPixel = (pixelId: string) => {
   if (typeof window === "undefined" || !pixelId || typeof window.fbq === "function") return;
 
   const fbq = function (...args: unknown[]) {
-    const queue = (fbq as unknown as { queue: unknown[][] }).queue;
-    queue.push(args);
+    const api = fbq as unknown as {
+      callMethod?: (...methodArgs: unknown[]) => void;
+      queue: unknown[][];
+    };
+    if (api.callMethod) {
+      api.callMethod(...args);
+      return;
+    }
+    api.queue.push(args);
   } as unknown as (...args: unknown[]) => void;
 
-  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string }).queue = [];
-  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string }).loaded = true;
-  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string }).version = "2.0";
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string; push: (...args: unknown[]) => void }).push = fbq;
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string; push: (...args: unknown[]) => void }).queue = [];
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string; push: (...args: unknown[]) => void }).loaded = true;
+  (fbq as unknown as { queue: unknown[][]; loaded: boolean; version: string; push: (...args: unknown[]) => void }).version = "2.0";
   window.fbq = fbq;
   window._fbq = fbq;
 
@@ -203,6 +211,7 @@ function LandingPage() {
   const [checkoutConfig, setCheckoutConfig] = useState<CheckoutConfig | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const hasBootstrapped = useRef(false);
   const fetchCheckoutConfig = useServerFn(getCheckoutConfig);
   const trackEvent = useServerFn(trackEbookEvent);
   const createOrder = useServerFn(createEbookOrder);
@@ -210,6 +219,8 @@ function LandingPage() {
   const markPaymentFailed = useServerFn(markEbookPaymentFailed);
 
   useEffect(() => {
+    if (hasBootstrapped.current) return;
+    hasBootstrapped.current = true;
     let mounted = true;
 
     fetchCheckoutConfig()
