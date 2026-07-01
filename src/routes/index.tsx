@@ -17,7 +17,7 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
-import ebookHero from "@/assets/ebook-hero.png";
+import ebookCover from "@/assets/ebook-cover.jpg.asset.json";
 import {
   getCheckoutConfig,
   trackEbookEvent,
@@ -335,15 +335,43 @@ function Hero({ onCta, loading = false }: CtaButtonProps) {
           <div
             aria-hidden
             className="absolute inset-0 -z-10 rounded-full blur-3xl"
-            style={{ background: "radial-gradient(closest-side, oklch(0.78 0.15 75 / 0.25), transparent)" }}
+            style={{ background: "radial-gradient(closest-side, oklch(0.78 0.15 75 / 0.35), transparent 70%)" }}
           />
-          <img
-            src={ebookHero}
-            alt="Personal finance ebook cover"
-            width={1024}
-            height={1024}
-            className="animate-float w-[78%] max-w-[420px] drop-shadow-[0_40px_80px_rgba(0,0,0,0.55)]"
-          />
+          <div className="animate-float relative w-[78%] max-w-[420px] [perspective:1600px]">
+            {/* Gold glow behind cover */}
+            <div
+              aria-hidden
+              className="absolute -inset-6 -z-10 rounded-[2rem] opacity-70 blur-2xl"
+              style={{ background: "linear-gradient(135deg, oklch(0.78 0.15 75 / 0.5), oklch(0.55 0.18 265 / 0.35))" }}
+            />
+            <div className="relative [transform:rotateY(-14deg)_rotateX(4deg)] transition-transform duration-500 hover:[transform:rotateY(-6deg)_rotateX(2deg)]">
+              {/* Book spine */}
+              <div
+                aria-hidden
+                className="absolute -left-2 top-1 bottom-1 w-3 rounded-l-md"
+                style={{ background: "linear-gradient(90deg, #0a1230 0%, #1a2350 60%, #d4af37 100%)" }}
+              />
+              {/* Pages edge */}
+              <div
+                aria-hidden
+                className="absolute -right-1.5 top-2 bottom-2 w-2 rounded-r-sm"
+                style={{ background: "linear-gradient(90deg, #f5efe0 0%, #cdbf95 100%)" }}
+              />
+              <img
+                src={ebookCover.url}
+                alt="Personal Finance for Gen Z & Millennials — Premium Bestselling Ebook Cover"
+                width={900}
+                height={1200}
+                className="relative w-full rounded-[6px] shadow-[0_50px_100px_-20px_rgba(0,0,0,0.75),0_30px_60px_-30px_rgba(212,175,55,0.35)] ring-1 ring-gold/30"
+              />
+              {/* Glossy sheen */}
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 rounded-[6px]"
+                style={{ background: "linear-gradient(115deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 35%, rgba(255,255,255,0) 65%, rgba(255,255,255,0.08) 100%)" }}
+              />
+            </div>
+          </div>
           <FloatingStat
             className="absolute left-0 top-6 sm:left-2"
             icon={<TrendingUp className="size-4" />}
