@@ -358,7 +358,7 @@ function Hero({ onCta, loading = false }: CtaButtonProps) {
                 style={{ background: "linear-gradient(90deg, #f5efe0 0%, #cdbf95 100%)" }}
               />
               <img
-                src={ebookCover.url}
+                src={ebookCover}
                 alt="Personal Finance for Gen Z & Millennials — Premium Bestselling Ebook Cover"
                 width={900}
                 height={1200}
