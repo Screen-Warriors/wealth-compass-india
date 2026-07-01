@@ -72,11 +72,34 @@ type RazorpayPaymentResponse = {
 };
 
 const jsonHeaders = { "Content-Type": "application/json" };
+const CHECKOUT_UNAVAILABLE_MESSAGE = "Checkout is temporarily unavailable. Please contact support to complete your purchase.";
+
+const placeholderEnvValues = new Set([
+  "rzp_test_replace_with_your_key_id",
+  "replace_with_your_razorpay_secret_key",
+  "replace_with_your_supabase_service_role_key",
+]);
+
+function envValue(name: string) {
+  const value = process.env[name]?.trim();
+  return value && !placeholderEnvValues.has(value) ? value : undefined;
+}
 
 function requireEnv(name: string) {
-  const value = process.env[name];
+  const value = envValue(name);
   if (!value) throw new Error(`${name} is not configured.`);
   return value;
+}
+
+function hasPaymentEnv() {
+  return Boolean(envValue("RAZORPAY_KEY_ID") && envValue("RAZORPAY_SECRET_KEY"));
+}
+
+function requirePaymentEnv() {
+  return {
+    keyId: requireEnv("RAZORPAY_KEY_ID"),
+    secretKey: requireEnv("RAZORPAY_SECRET_KEY"),
+  };
 }
 
 function randomHex(byteLength: number) {
@@ -129,8 +152,7 @@ function toJson(value: Record<string, unknown> | undefined): Json {
 }
 
 async function razorpayAuthHeader() {
-  const keyId = requireEnv("RAZORPAY_KEY_ID");
-  const secretKey = requireEnv("RAZORPAY_SECRET_KEY");
+  const { keyId, secretKey } = requirePaymentEnv();
   return `Basic ${btoa(`${keyId}:${secretKey}`)}`;
 }
 
@@ -180,7 +202,8 @@ export const getCheckoutConfig = createServerFn({ method: "GET" }).handler(async
   amountPaise: PRODUCT_AMOUNT_PAISE,
   price: PRODUCT_PRICE,
   currency: PRODUCT_CURRENCY,
-  razorpayKeyId: process.env.RAZORPAY_KEY_ID ?? "",
+  checkoutAvailable: hasPaymentEnv(),
+  razorpayKeyId: envValue("RAZORPAY_KEY_ID") ?? "",
   metaPixelId: process.env.META_PIXEL_ID ?? "",
 }));
 
@@ -194,8 +217,13 @@ export const trackEbookEvent = createServerFn({ method: "POST" })
 export const createEbookOrder = createServerFn({ method: "POST" })
   .inputValidator((data) => createOrderSchema.parse(data))
   .handler(async ({ data }) => {
-    const keyId = requireEnv("RAZORPAY_KEY_ID");
-    requireEnv("RAZORPAY_SECRET_KEY");
+    let keyId: string;
+    try {
+      keyId = requirePaymentEnv().keyId;
+    } catch (error) {
+      console.error("Razorpay checkout is not configured", error);
+      throw new Error(CHECKOUT_UNAVAILABLE_MESSAGE);
+    }
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const receipt = `ebook_${Date.now()}_${globalThis.crypto.randomUUID().slice(0, 8)}`;

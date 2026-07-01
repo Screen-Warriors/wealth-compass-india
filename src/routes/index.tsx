@@ -19,11 +19,8 @@ import {
 } from "lucide-react";
 import ebookHero from "@/assets/ebook-hero.png";
 import {
-  createEbookOrder,
   getCheckoutConfig,
-  markEbookPaymentFailed,
   trackEbookEvent,
-  verifyEbookPayment,
 } from "@/lib/ebook-payments.functions";
 
 export const Route = createFileRoute("/")({
@@ -78,46 +75,8 @@ declare global {
   interface Window {
     fbq?: (...args: unknown[]) => void;
     _fbq?: unknown;
-    Razorpay?: new (options: RazorpayOptions) => RazorpayCheckout;
   }
 }
-
-type RazorpayCheckout = {
-  open: () => void;
-  on: (event: "payment.failed", handler: (response: RazorpayFailedResponse) => void) => void;
-};
-
-type RazorpaySuccessResponse = {
-  razorpay_order_id: string;
-  razorpay_payment_id: string;
-  razorpay_signature: string;
-};
-
-type RazorpayFailedResponse = {
-  error?: {
-    description?: string;
-    metadata?: {
-      order_id?: string;
-      payment_id?: string;
-    };
-  };
-};
-
-type RazorpayOptions = {
-  key: string;
-  amount: number;
-  currency: string;
-  name: string;
-  description: string;
-  order_id: string;
-  image?: string;
-  method?: { upi?: boolean; card?: boolean; netbanking?: boolean; wallet?: boolean };
-  notes?: Record<string, string>;
-  retry?: { enabled: boolean; max_count?: number };
-  theme?: { color: string };
-  modal?: { confirm_close?: boolean; ondismiss?: () => void; escape?: boolean; backdropclose?: boolean };
-  handler: (response: RazorpaySuccessResponse) => void;
-};
 
 type CheckoutConfig = {
   productName: string;
@@ -125,6 +84,7 @@ type CheckoutConfig = {
   amountPaise: number;
   price: number;
   currency: "INR";
+  checkoutAvailable: boolean;
   razorpayKeyId: string;
   metaPixelId: string;
 };
@@ -139,6 +99,8 @@ const track = (event: string, data?: Record<string, unknown>) => {
     window.fbq("track", event, data);
   }
 };
+
+const RAZORPAY_PAYMENT_LINK = "https://rzp.io/rzp/PDL5tRPv";
 
 const initMetaPixel = (pixelId: string) => {
   if (typeof window === "undefined" || !pixelId || typeof window.fbq === "function") return;
@@ -170,42 +132,6 @@ const initMetaPixel = (pixelId: string) => {
   window.fbq("track", "PageView");
 };
 
-const ensureRazorpayScript = () =>
-  new Promise<void>((resolve, reject) => {
-    if (typeof window === "undefined") return reject(new Error("Checkout is unavailable right now."));
-    if (window.Razorpay) return resolve();
-
-    const waitForCheckout = () => {
-      const startedAt = Date.now();
-      const timer = window.setInterval(() => {
-        if (window.Razorpay) {
-          window.clearInterval(timer);
-          resolve();
-          return;
-        }
-        if (Date.now() - startedAt > 5000) {
-          window.clearInterval(timer);
-          reject(new Error("Could not load secure checkout. Please retry."));
-        }
-      }, 50);
-    };
-
-    const existing = document.querySelector<HTMLScriptElement>('script[src="https://checkout.razorpay.com/v1/checkout.js"]');
-    if (existing) {
-      existing.addEventListener("load", () => resolve(), { once: true });
-      existing.addEventListener("error", () => reject(new Error("Could not load secure checkout. Please retry.")), { once: true });
-      waitForCheckout();
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error("Could not load secure checkout. Please retry."));
-    document.body.appendChild(script);
-  });
-
 function LandingPage() {
   const [showSticky, setShowSticky] = useState(false);
   const [checkoutConfig, setCheckoutConfig] = useState<CheckoutConfig | null>(null);
@@ -214,9 +140,6 @@ function LandingPage() {
   const hasBootstrapped = useRef(false);
   const fetchCheckoutConfig = useServerFn(getCheckoutConfig);
   const trackEvent = useServerFn(trackEbookEvent);
-  const createOrder = useServerFn(createEbookOrder);
-  const verifyPayment = useServerFn(verifyEbookPayment);
-  const markPaymentFailed = useServerFn(markEbookPaymentFailed);
 
   useEffect(() => {
     if (hasBootstrapped.current) return;
@@ -245,18 +168,15 @@ function LandingPage() {
       },
     }).catch((error) => console.error("Could not track landing visit", error));
 
-    const preloadCheckout = () => ensureRazorpayScript().catch(() => undefined);
     const onScroll = () => setShowSticky(window.scrollY > 480);
     window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("pointerdown", preloadCheckout, { once: true, passive: true });
     return () => {
       mounted = false;
       window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("pointerdown", preloadCheckout);
     };
   }, [fetchCheckoutConfig, trackEvent]);
 
-  const handleCheckout = async (location: string) => {
+  const handleCheckout = (location: string) => {
     if (checkoutLoading) return;
     setCheckoutLoading(true);
     setCheckoutError(null);
@@ -271,93 +191,20 @@ function LandingPage() {
       source: location,
     });
 
-    try {
-      await ensureRazorpayScript();
-      const order = await createOrder({
-        data: {
-          source: location,
-          referrer: document.referrer || undefined,
-          landingPath: `${window.location.pathname}${window.location.search}`,
-        },
-      });
+    trackEvent({
+      data: {
+        eventName: "InitiateCheckout",
+        amountPaise: checkoutConfig?.amountPaise ?? 9900,
+        currency,
+        source: location,
+        referrer: document.referrer || undefined,
+        landingPath: `${window.location.pathname}${window.location.search}`,
+        metadata: { payment_link: RAZORPAY_PAYMENT_LINK },
+      },
+    }).catch((error) => console.error("Could not track payment link click", error));
 
-      if (!window.Razorpay) throw new Error("Secure checkout is unavailable. Please retry.");
-
-      const checkout = new window.Razorpay({
-        key: order.keyId,
-        amount: order.amountPaise,
-        currency: order.currency,
-        name: "Money Playbook",
-        description: order.productDescription,
-        order_id: order.razorpayOrderId,
-        method: { upi: true, card: true, netbanking: true, wallet: true },
-        retry: { enabled: true, max_count: 3 },
-        notes: {
-          product_name: order.productName,
-          receipt: order.receipt,
-          source: location,
-        },
-        theme: { color: "#d9a13b" },
-        modal: {
-          confirm_close: true,
-          ondismiss: () => setCheckoutLoading(false),
-          escape: true,
-          backdropclose: false,
-        },
-        handler: async (response) => {
-          try {
-            const result = await verifyPayment({
-              data: {
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                source: location,
-              },
-            });
-
-            track("Purchase", {
-              content_name: order.productName,
-              value: 99,
-              currency: order.currency,
-              order_id: response.razorpay_order_id,
-            });
-            await new Promise((resolve) => setTimeout(resolve, 250));
-            window.location.href = result.redirectPath;
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Payment verification failed.";
-            setCheckoutError(message);
-            setCheckoutLoading(false);
-          }
-        },
-      });
-
-      checkout.on("payment.failed", (response) => {
-        const reason = response.error?.description || "Payment failed. Please retry with UPI, card, net banking, or wallet.";
-        setCheckoutError(reason);
-        setCheckoutLoading(false);
-        track("PaymentFailed", { content_name: order.productName, value: 99, currency: order.currency, source: location });
-        markPaymentFailed({
-          data: {
-            razorpayOrderId: response.error?.metadata?.order_id ?? order.razorpayOrderId,
-            razorpayPaymentId: response.error?.metadata?.payment_id,
-            reason,
-            source: location,
-          },
-        }).catch((error) => console.error("Could not record payment failure", error));
-      });
-
-      checkout.open();
-      // Razorpay now owns the UI. Release the button so the user can retry
-      // if the modal is blocked (sandboxed iframe, popup blocker, etc.)
-      // or simply if they want to click again.
-      window.setTimeout(() => setCheckoutLoading(false), 800);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not start checkout. Please try again.";
-      setCheckoutError(message);
-      setCheckoutLoading(false);
-    }
+    window.location.href = RAZORPAY_PAYMENT_LINK;
   };
-
 
   return (
     <main className="min-h-screen bg-background text-foreground">
