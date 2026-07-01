@@ -17,7 +17,7 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
-import ebookCover from "@/assets/ebook-cover.jpg.asset.json";
+import ebookCover from "@/assets/ebook-cover.jpg";
 import {
   getCheckoutConfig,
   trackEbookEvent,
